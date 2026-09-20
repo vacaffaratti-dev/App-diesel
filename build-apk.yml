@@ -1,0 +1,67 @@
+# Compila el APK de ASTIE DIESEL en los servidores de GitHub (sin necesidad de una PC).
+#
+# Uso: pestaña "Actions" → "Compilar APK" → "Run workflow".
+# Al terminar, el APK se descarga desde la sección "Artifacts" de la ejecución.
+#
+# Funciona con el proyecto subido tal cual (carpetas) o con el archivo ASTIE_DIESEL_completo.zip
+# subido a la raíz del repositorio (el paso "Ubicar el proyecto" lo descomprime).
+
+name: Compilar APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "URL del backend, ej. https://api.tudominio.com (vacío = la de .env.android)"
+        required: false
+        default: ""
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ubicar el proyecto
+        id: where
+        run: |
+          if [ -f ASTIE_DIESEL_completo.zip ]; then
+            unzip -q ASTIE_DIESEL_completo.zip -d _proj
+            echo "dir=_proj/astie-diesel" >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=." >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: URL del backend
+        if: ${{ inputs.api_url != '' }}
+        working-directory: ${{ steps.where.outputs.dir }}
+        env:
+          API_URL: ${{ inputs.api_url }}
+        run: printf 'VITE_API_URL=%s\n' "$API_URL" > .env.android
+
+      - name: Instalar dependencias
+        working-directory: ${{ steps.where.outputs.dir }}
+        run: npm install
+
+      - name: Compilar APK (debug)
+        working-directory: ${{ steps.where.outputs.dir }}
+        run: node scripts/android-build.mjs debug
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ASTIE-DIESEL-apk
+          path: ${{ steps.where.outputs.dir }}/release/*.apk
+          if-no-files-found: error
