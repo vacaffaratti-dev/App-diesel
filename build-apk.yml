@@ -65,3 +65,6 @@ jobs:
           name: ASTIE-DIESEL-apk
           path: ${{ steps.where.outputs.dir }}/release/*.apk
           if-no-files-found: error
+git tag v1.0.0
+git push origin v1.0.0
+
