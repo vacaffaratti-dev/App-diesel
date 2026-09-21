@@ -110,6 +110,8 @@ jobs:
             exit 1
           fi
 
+          APK="${APK#./}"
+
           echo "APK generado: $APK"
           echo "path=$APK" >> "$GITHUB_OUTPUT"
 
