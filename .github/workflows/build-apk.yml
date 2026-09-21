@@ -1,0 +1,119 @@
+name: Compilar APK
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "URL del backend. Vacío = usar .env.android del proyecto"
+        required: false
+        default: ""
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar proyecto
+        id: project
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f "ASTIE_DIESEL_completo.zip" ]; then
+            echo "Descomprimiendo proyecto..."
+            rm -rf _proj
+            mkdir -p _proj
+            unzip -q "ASTIE_DIESEL_completo.zip" -d _proj
+          fi
+
+          PROJECT_DIR=""
+
+          while IFS= read -r package_file; do
+            DIR="$(dirname "$package_file")"
+
+            if [ -f "$DIR/scripts/android-build.mjs" ]; then
+              PROJECT_DIR="$DIR"
+              break
+            fi
+          done < <(find . -name package.json -not -path "./node_modules/*")
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: No se encontró package.json con scripts/android-build.mjs"
+            echo "Contenido del repositorio:"
+            find . -maxdepth 4 -type f | sort
+            exit 1
+          fi
+
+          PROJECT_DIR="${PROJECT_DIR#./}"
+
+          echo "Proyecto encontrado en: $PROJECT_DIR"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Configurar URL del backend
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.api_url != '' }}
+        working-directory: ${{ steps.project.outputs.dir }}
+        env:
+          API_URL: ${{ inputs.api_url }}
+        run: |
+          printf 'VITE_API_URL=%s\n' "$API_URL" > .env.android
+
+      - name: Instalar dependencias
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Compilar APK
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: node scripts/android-build.mjs debug
+
+      - name: Buscar APK
+        id: apk
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          set -e
+
+          APK="$(find . -type f -name '*.apk' | head -n 1)"
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: No se generó ningún APK."
+            find . -type f | sort
+            exit 1
+          fi
+
+          echo "APK generado: $APK"
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ASTIE-DIESEL-apk
+          path: ${{ steps.project.outputs.dir }}/${{ steps.apk.outputs.path }}
+          if-no-files-found: error
