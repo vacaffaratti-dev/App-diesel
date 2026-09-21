@@ -61,13 +61,15 @@ jobs:
           node-version: 22
 
       - name: Configurar Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
       - name: Configurar Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Configurar URL del backend
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.api_url != '' }}
