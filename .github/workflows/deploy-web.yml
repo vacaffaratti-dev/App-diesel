@@ -91,7 +91,14 @@ jobs:
               s=s.replace("ReactDOM.createRoot(document.getElementById('root')).render(\n  <App />\n)", "ReactDOM.createRoot(document.getElementById('root')).render(\n  <App />\n)\n\nregisterPWA()")
           p.write_text(s)
           PY
-          # Vite injecta el manifest y los iconos desde public/.
+          python3 - <<'PY2'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text()
+          if 'manifest.webmanifest' not in s:
+              s=s.replace('</head>', '<link rel="manifest" href="./manifest.webmanifest"><meta name="theme-color" content="#16a34a"></head>')
+          p.write_text(s)
+          PY2
 
       - name: Configurar Node.js
         uses: actions/setup-node@v4
