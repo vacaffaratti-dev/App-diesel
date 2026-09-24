@@ -1,0 +1,129 @@
+name: Publicar ASTIE DIESEL Web
+
+on:
+  push:
+    branches: [release/web-online-pwa]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar proyecto
+        id: project
+        shell: bash
+        run: |
+          set -e
+          rm -rf _proj
+          mkdir -p _proj
+          unzip -q ASTIE_DIESEL_completo.zip -d _proj
+          PROJECT_DIR=""
+          while IFS= read -r package_file; do
+            DIR="$(dirname "$package_file")"
+            if [ -f "$DIR/scripts/android-build.mjs" ]; then
+              PROJECT_DIR="$DIR"
+              break
+            fi
+          done < <(find _proj -name package.json -not -path "*/node_modules/*")
+          test -n "$PROJECT_DIR"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Aplicar modo local
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: python3 "$GITHUB_WORKSPACE/scripts/apply-recovery-patch.py" "$PWD"
+
+      - name: Preparar PWA
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          set -e
+          mkdir -p public
+          cat > public/manifest.webmanifest <<'EOF'
+          {
+            "name": "ASTIE DIESEL",
+            "short_name": "ASTIE",
+            "description": "Gestión comercial ASTIE DIESEL",
+            "start_url": "./",
+            "scope": "./",
+            "display": "standalone",
+            "orientation": "portrait-primary",
+            "background_color": "#ffffff",
+            "theme_color": "#16a34a",
+            "icons": [
+              {"src":"./icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
+              {"src":"./icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+            ]
+          }
+          EOF
+          cat > public/sw.js <<'EOF'
+          const CACHE = "astie-diesel-v1";
+          const APP = ["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png"];
+          self.addEventListener("install", event => { event.waitUntil(caches.open(CACHE).then(c => c.addAll(APP)).then(() => self.skipWaiting())); });
+          self.addEventListener("activate", event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
+          self.addEventListener("fetch", event => { if (event.request.method !== "GET") return; event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => { const copy=response.clone(); caches.open(CACHE).then(c=>c.put(event.request,copy)); return response; }).catch(() => caches.match("./index.html")))); });
+          EOF
+          cat > src/pwa-register.js <<'EOF'
+          export function registerPWA() {
+            if ("serviceWorker" in navigator) {
+              window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js", {scope:"./"}).catch(() => {}));
+            }
+          }
+          EOF
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("src/main.jsx")
+          s=p.read_text()
+          if "registerPWA" not in s:
+              s=s.replace("import '@/index.css'", "import '@/index.css'\nimport { registerPWA } from '@/pwa-register'")
+              s=s.replace("ReactDOM.createRoot(document.getElementById('root')).render(\n  <App />\n)", "ReactDOM.createRoot(document.getElementById('root')).render(\n  <App />\n)\n\nregisterPWA()")
+          p.write_text(s)
+          PY
+          # Vite injecta el manifest y los iconos desde public/.
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependencias
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Compilar web
+        working-directory: ${{ steps.project.outputs.dir }}
+        env:
+          VITE_ROUTER: hash
+        run: npm run build -- --base=/App-diesel/
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+
+      - name: Preparar artefacto Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ steps.project.outputs.dir }}/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publicar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
