@@ -131,4 +131,4 @@ LOCAL_SETTINGS = "import { db, apiFetch } from \"@/api/db\";\nexport async funct
 (root/"src/api/db.js").write_text(LOCAL_DB)
 (root/"src/lib/session.jsx").write_text(LOCAL_SESSION)
 (root/"src/lib/settingsService.js").write_text(LOCAL_SETTINGS)
-(root/".env.android").write_text("")
+(root/".env.android").write_text("VITE_API_URL=http://localhost\n")
