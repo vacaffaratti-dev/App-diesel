@@ -53,6 +53,13 @@ jobs:
           echo "Proyecto encontrado en: $PROJECT_DIR"
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
+      - name: Aplicar recuperación segura de credenciales
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          set -e
+          python3 "$GITHUB_WORKSPACE/scripts/apply-recovery-patch.py" "$PWD"
+
       - name: Configurar identidad visual verde
         working-directory: ${{ steps.project.outputs.dir }}
         shell: bash
