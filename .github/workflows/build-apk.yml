@@ -1,0 +1,205 @@
+name: Compilar APK
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "URL del backend. Vacío = usar .env.android del proyecto"
+        required: false
+        default: ""
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar proyecto
+        id: project
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f "ASTIE_DIESEL_completo.zip" ]; then
+            echo "Descomprimiendo proyecto..."
+            rm -rf _proj
+            mkdir -p _proj
+            unzip -q "ASTIE_DIESEL_completo.zip" -d _proj
+          fi
+
+          PROJECT_DIR=""
+
+          while IFS= read -r package_file; do
+            DIR="$(dirname "$package_file")"
+
+            if [ -f "$DIR/scripts/android-build.mjs" ]; then
+              PROJECT_DIR="$DIR"
+              break
+            fi
+          done < <(find . -name package.json -not -path "./node_modules/*")
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: No se encontró package.json con scripts/android-build.mjs"
+            find . -maxdepth 4 -type f | sort
+            exit 1
+          fi
+
+          PROJECT_DIR="${PROJECT_DIR#./}"
+          echo "Proyecto encontrado en: $PROJECT_DIR"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Aplicar recuperación segura de credenciales
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          set -e
+          python3 "$GITHUB_WORKSPACE/scripts/apply-recovery-patch.py" "$PWD"
+
+      - name: Configurar identidad visual verde
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          set -e
+
+          # Logo YPF agro proporcionado para esta versión.
+          mkdir -p public
+          cp "$GITHUB_WORKSPACE/branding/ypf-agro-logo.png" public/ypf-agro-logo.png
+
+          # Sustituir acentos amarillos/naranjas heredados por el verde de la nueva identidad.
+          find src -type f \( -name '*.jsx' -o -name '*.js' -o -name '*.css' \) -print0 |
+            xargs -0 sed -i -E 's/(amber|yellow|orange)-([0-9]+)/emerald-\2/g'
+
+          # Logo visible en la pantalla inicial.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("src/pages/Entry.jsx")
+          s = p.read_text()
+          needle = '<div className="entry-page min-h-screen text-stone-900 flex flex-col">'
+          repl = needle + '''
+              <div className="pt-8 flex justify-center">
+                <img src="/ypf-agro-logo.png" alt="YPF agro" className="w-40 h-24 object-contain" />
+              </div>'''
+          if needle in s and '/ypf-agro-logo.png' not in s:
+              p.write_text(s.replace(needle, repl, 1))
+          PY
+
+          # Capa visual común: blanco + negro + verde, tarjetas limpias y sombras suaves.
+          cat >> src/index.css <<'CSS'
+
+          /* ASTIE DIESEL — identidad visual YPF agro */
+          :root {
+            --primary: 145 72% 38%;
+            --primary-foreground: 0 0% 100%;
+            --secondary: 145 24% 96%;
+            --secondary-foreground: 150 35% 14%;
+            --accent: 145 55% 94%;
+            --accent-foreground: 145 72% 29%;
+            --ring: 145 72% 38%;
+            --border: 150 10% 88%;
+            --input: 150 10% 84%;
+          }
+
+          html, body, #root { background: #fff !important; }
+          body { color: #171717 !important; }
+
+          .rounded-xl, .rounded-2xl {
+            box-shadow: 0 4px 18px rgba(15,23,42,.045);
+          }
+
+          button.bg-emerald-600, a.bg-emerald-600 {
+            box-shadow: 0 6px 16px rgba(16,185,129,.18);
+          }
+
+          button.bg-emerald-600:hover, a.bg-emerald-600:hover {
+            box-shadow: 0 8px 20px rgba(16,185,129,.24);
+          }
+
+          ::selection { background: rgb(16 185 129 / .20); color: rgb(6 78 59); }
+          ::-webkit-scrollbar { width: 8px; height: 8px; }
+          ::-webkit-scrollbar-track { background: #f5f5f5; }
+          ::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 999px; }
+          ::-webkit-scrollbar-thumb:hover { background: #10b981; }
+          CSS
+
+          # Icono/splash del APK.
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            cp "$GITHUB_WORKSPACE/branding/ypf-agro-logo.png" "android/app/src/main/res/mipmap-$d/ic_launcher.png"
+            cp "$GITHUB_WORKSPACE/branding/ypf-agro-logo.png" "android/app/src/main/res/mipmap-$d/ic_launcher_round.png"
+            cp "$GITHUB_WORKSPACE/branding/ypf-agro-logo.png" "android/app/src/main/res/mipmap-$d/ic_launcher_foreground.png"
+          done
+          cp "$GITHUB_WORKSPACE/branding/ypf-agro-logo.png" android/app/src/main/res/drawable/splash_logo.png
+          cat > android/app/src/main/res/values/colors.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="colorPrimary">#16A34A</color>
+              <color name="colorPrimaryDark">#15803D</color>
+              <color name="colorAccent">#16A34A</color>
+          </resources>
+          XML
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configurar Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Configurar URL del backend
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.api_url != '' }}
+        working-directory: ${{ steps.project.outputs.dir }}
+        env:
+          API_URL: ${{ inputs.api_url }}
+        run: |
+          printf 'VITE_API_URL=%s\n' "$API_URL" > .env.android
+
+      - name: Instalar dependencias
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          set -e
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Compilar APK
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: node scripts/android-build.mjs debug
+
+      - name: Buscar APK
+        id: apk
+        working-directory: ${{ steps.project.outputs.dir }}
+        shell: bash
+        run: |
+          set -e
+          APK="$(find . -type f -name '*.apk' | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "ERROR: No se generó ningún APK."
+            find . -type f | sort
+            exit 1
+          fi
+          APK="${APK#./}"
+          echo "APK generado: $APK"
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ASTIE-DIESEL-apk
+          path: ${{ steps.project.outputs.dir }}/${{ steps.apk.outputs.path }}
+          if-no-files-found: error
