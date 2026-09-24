@@ -1,5 +1,5 @@
 {
   "buildCommand": "bash scripts/vercel-build.sh",
-  "outputDirectory": "app/dist",
+  "outputDirectory": "app/astie-diesel/dist",
   "installCommand": "true"
 }
