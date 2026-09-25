@@ -19,6 +19,12 @@ if [ ! -f "$ROOT/package.json" ] || [ ! -f "$ROOT/index.html" ]; then
 fi
 
 API="https://xyggsdkxjsemvjjlveey.supabase.co/functions/v1/astie-api"
+
+# Identidad visual: blanco + negro + verde YPF Agro.
+mkdir -p "$ROOT/public"
+if [ -f "branding/ypf-agro-logo.png" ]; then
+  cp "branding/ypf-agro-logo.png" "$ROOT/public/ypf-agro-logo.png"
+fi
 python3 - "$ROOT" "$API" <<'PY'
 from pathlib import Path
 import sys
