@@ -71,7 +71,8 @@ s=s.replace(
     'const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";',
     f'const API_BASE = import.meta.env.VITE_API_URL || "{api}";'
 )
-p.write_text(s)
+# El backend actual valida la contraseña recibida en x-astie-token.
+p.write_text(s.replace('persistAuthHeaders({"x-astie-role":role,"x-astie-token":data.token})', 'persistAuthHeaders({"x-astie-role":role,"x-astie-token":password})'))
 
 # Segunda pasada visual: reemplazar acentos cálidos heredados por verde.
 import subprocess
